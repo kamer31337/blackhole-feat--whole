@@ -1,0 +1,6 @@
+{
+  "name": "6D Gravitational & Quantum Simulation Engine",
+  "description": "High-performance interactive 6D simulator of black holes, wormhole stabilization, Schrödinger's auditory cat wave-function collapse, and multi-dimensional space visuals.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
