@@ -53,6 +53,33 @@ export default function App() {
     history: []
   });
 
+  // 5. Physics Simulation Tick Rate Monitoring Engine
+  const [tickRate, setTickRate] = useState(60.0);
+
+  useEffect(() => {
+    let lastTime = performance.now();
+    let frameCount = 0;
+    let animId: number;
+
+    const tick = () => {
+      frameCount++;
+      const now = performance.now();
+      if (now - lastTime >= 500) {
+        const rate = (frameCount * 1000) / (now - lastTime);
+        setTickRate(prev => {
+          const raw = prev * 0.75 + rate * 0.25;
+          return Number(raw.toFixed(1));
+        });
+        frameCount = 0;
+        lastTime = now;
+      }
+      animId = requestAnimationFrame(tick);
+    };
+
+    animId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(animId);
+  }, []);
+
   const downloadTelemetryLogs = () => {
     const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(metrics, null, 2));
     const downloadAnchorNode = document.createElement('a');
@@ -200,6 +227,12 @@ export default function App() {
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
             <span className="text-slate-400">PHYSICS ACCURACY:</span>
             <span className="text-slate-100 font-bold">10⁻¹² SEC</span>
+          </div>
+
+          <div id="header-physics-tick-rate" className="flex items-center gap-1.5 bg-slate-950 px-2.5 py-1 rounded border border-slate-900">
+            <span className={`w-1.5 h-1.5 rounded-full ${tickRate >= 55 ? 'bg-emerald-500' : 'bg-red-500 animate-pulse'}`}></span>
+            <span className="text-slate-400">PHYSICS TICK RATE:</span>
+            <span className={`font-bold ${tickRate >= 55 ? 'text-emerald-400' : 'text-red-400 animate-pulse'}`}>{tickRate.toFixed(1)} HZ</span>
           </div>
 
           <div className="flex items-center gap-1.5 bg-slate-950 px-2.5 py-1 rounded border border-slate-900">
@@ -364,7 +397,6 @@ export default function App() {
                     />
                   </div>
                 </div>
-              </div>
 
               <p className="text-[9px] font-mono text-slate-500 leading-normal mt-4 border-t border-slate-900/60 pt-2">
                 *The active metric updates space-time projections automatically in real-time.
@@ -457,9 +489,120 @@ export default function App() {
                 </button>
               </div>
             </div>
+
+            {/* 3. Physics Simulation Diagnostics Widget */}
+            <div id="sim-diagnostics-widget" className="bg-[#0b0c16] rounded-xl border border-slate-800/80 p-5 flex flex-col justify-between">
+              <div className="flex items-center gap-2 mb-3 border-b border-slate-800/60 pb-2">
+                <Cpu className="text-sky-400 w-5 h-5" />
+                <h2 className="text-xs font-semibold tracking-wider text-slate-200 uppercase">
+                  PHYSICS DIAGNOSTICS & BUDGET
+                </h2>
+              </div>
+              <p className="text-[10px] text-slate-400 font-mono mb-3 leading-normal">
+                Monitoring high-frequency 6D Einstein-Rosen coordinate mapping budget in real-time.
+              </p>
+              <div className="grid grid-cols-2 gap-3 mb-3">
+                <div className="bg-slate-950/60 border border-slate-900 p-2.5 rounded">
+                  <div className="text-[8px] text-slate-500 font-mono uppercase">TICK RATE</div>
+                  <div className={`text-xs font-mono font-bold mt-0.5 ${tickRate >= 55 ? 'text-emerald-400' : 'text-amber-400'}`}>
+                    {tickRate.toFixed(1)} Hz
+                  </div>
+                </div>
+                <div className="bg-slate-950/60 border border-slate-900 p-2.5 rounded">
+                  <div className="text-[8px] text-slate-500 font-mono uppercase">TICK LATENCY</div>
+                  <div className="text-xs font-mono font-bold text-slate-300 mt-0.5">
+                    {(1000 / tickRate).toFixed(1)} ms
+                  </div>
+                </div>
+              </div>
+              <div>
+                <div className="flex justify-between text-[8px] text-slate-500 font-mono mb-1">
+                  <span>COMPUTE BUDGET MARGIN (OPTIMAL &gt; 55 Hz)</span>
+                  <span className={`${tickRate >= 55 ? 'text-emerald-400' : 'text-amber-400'} font-bold`}>{Math.min(100, Math.max(0, (tickRate / 60) * 100)).toFixed(0)}%</span>
+                </div>
+                <div className="w-full h-1.5 bg-slate-950 rounded overflow-hidden">
+                  <div
+                    className={`h-full transition-all duration-300 ${tickRate >= 55 ? 'bg-emerald-500' : 'bg-amber-500'}`}
+                    style={{ width: `${Math.min(100, Math.max(0, (tickRate / 60) * 100))}%` }}
+                  ></div>
+                </div>
+              </div>
+            </div>
+
+          </div>
+
+          {/* Column B: Real-time high performance 3D projection simulator */}
+          <div className="xl:col-span-2 flex flex-col h-full">
+            <SimulationEngine
+              blackHole={blackHole}
+              setBlackHole={setBlackHole}
+              wormhole={wormhole}
+              setWormhole={setWormhole}
+              metrics={metrics}
+              setMetrics={setMetrics}
+              triggerHapticFeedback={triggerHapticFeedback}
+            />
+          </div>
+
+        </div>
+
+        {/* Row 2: Quantum mechanics & Auditory states (Schrödinger + Quantum explorer side by side) */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <SchrodingerCat
+            catParams={catParams}
+            setCatParams={setCatParams}
+            triggerHapticFeedback={triggerHapticFeedback}
+          />
+          <QuantumExplorer
+            triggerHapticFeedback={triggerHapticFeedback}
+            stabilizerFreq={wormhole.stabilizerFreq}
+          />
+        </div>
+
+        {/* Row 3: Comprehensive Analytical Dashboard */}
+        <AnalyticsDashboard
+          blackHole={blackHole}
+          wormhole={wormhole}
+          catParams={catParams}
+          metrics={metrics}
+          setWormhole={setWormhole}
+          triggerHapticFeedback={triggerHapticFeedback}
+        />
+
+      </div>
+
+      {/* 4. Critical Instability Screen Pulse & HUD Overlay */}
+      {metrics.instabilityFactor > 80 && (
+        <div id="critical-instability-screen-pulse" className="fixed inset-0 pointer-events-none z-40 bg-red-600/10 mix-blend-overlay animate-pulse" style={{ animationDuration: '0.3s' }} />
+      )}
+
+      {metrics.instabilityFactor > 80 && (
+        <div id="instability-warning-overlay" className="fixed inset-0 z-50 pointer-events-none flex flex-col items-center justify-center bg-red-950/20 backdrop-blur-[1.5px] border-4 border-red-600/30 transition-all duration-500 animate-fade-in">
+          <div className="bg-[#080916]/95 border-2 border-red-500/80 p-5 rounded-xl shadow-2xl max-w-sm w-full mx-4 text-center pointer-events-auto shadow-red-500/20 flex flex-col items-center gap-3">
+            <div className="w-12 h-12 rounded-full bg-red-500/10 border border-red-500 flex items-center justify-center animate-bounce">
+              <ShieldAlert className="w-6 h-6 text-red-500 animate-pulse" />
+            </div>
+            <div>
+              <h2 className="text-xs font-mono font-black tracking-widest text-red-400 uppercase">
+                COHERENCE INSTABILITY EXCEEDED
+              </h2>
+              <p className="text-[10px] font-mono text-slate-400 mt-2 leading-relaxed">
+                Wormhole instability is currently <span className="text-red-400 font-bold">{metrics.instabilityFactor.toFixed(1)}%</span>. The ER-Bridge is undergoing immediate quantum decoherence.
+              </p>
+            </div>
+            <button
+              onClick={() => {
+                setWormhole(prev => ({ ...prev, stabilizerFreq: prev.targetFreq }));
+                triggerHapticFeedback('Emergency ER-Stabilizer frequency resonance auto-synced!', 1.0);
+              }}
+              className="w-full bg-red-600 hover:bg-red-500 text-white font-mono text-[9px] font-bold py-2 rounded-lg transition-all border border-red-500 animate-pulse"
+            >
+              TRIGGER RESU-HARMONICS SYSTEM
+            </button>
           </div>
         </div>
-      </div>
+      )}
+
     </div>
   );
 }

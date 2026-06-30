@@ -14,13 +14,14 @@ export default function SchrodingerCat({
   triggerHapticFeedback
 }: SchrodingerCatProps) {
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
-  const [displayMode, setDisplayMode] = useState<'heartbeat' | 'waveform'>('heartbeat');
+  const [displayMode, setDisplayMode] = useState<'heartbeat' | 'waveform' | '3d'>('3d');
   
   const audioContextRef = useRef<AudioContext | null>(null);
   const oscillatorRef = useRef<OscillatorNode | null>(null);
   const gainNodeRef = useRef<GainNode | null>(null);
   const heartbeatIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const waveformCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const threeDCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
   // Auditory Waveform Real-time Animator Loop
   useEffect(() => {
@@ -159,6 +160,256 @@ export default function SchrodingerCat({
       }
 
       ctx.shadowBlur = 0;
+      t += 1;
+      animId = requestAnimationFrame(render);
+    };
+
+    render();
+    return () => {
+      cancelAnimationFrame(animId);
+    };
+  }, [displayMode, catParams.catState, catParams.heartbeatFrequency]);
+
+  // 3D Schrödinger Wave-Function Real-time Projector Loop
+  useEffect(() => {
+    if (displayMode !== '3d' || !threeDCanvasRef.current) return;
+    const canvas = threeDCanvasRef.current;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    let animId: number;
+    let angleX = 0.5;
+    let angleY = 0.5;
+    let t = 0;
+
+    // Generate persistent 3D points representing the wave-function particles
+    const particleCount = 100;
+    const particles: { x: number; y: number; z: number; speed: number; size: number; phase: number; color: string }[] = [];
+    for (let i = 0; i < particleCount; i++) {
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.acos(Math.random() * 2 - 1);
+      const radius = 30 + Math.random() * 15;
+      particles.push({
+        x: radius * Math.sin(phi) * Math.cos(theta),
+        y: radius * Math.sin(phi) * Math.sin(theta),
+        z: radius * Math.cos(phi),
+        speed: 0.01 + Math.random() * 0.02,
+        size: 0.8 + Math.random() * 1.5,
+        phase: Math.random() * Math.PI * 2,
+        color: i % 2 === 0 ? 'rgba(168, 85, 247, 0.7)' : 'rgba(56, 189, 248, 0.7)'
+      });
+    }
+
+    const render = () => {
+      if (!ctx || !canvas) return;
+      const w = canvas.width;
+      const h = canvas.height;
+      const midX = w / 2;
+      const midY = h / 2;
+
+      ctx.fillStyle = '#010103';
+      ctx.fillRect(0, 0, w, h);
+
+      // Slower, elegant rotations
+      angleY += 0.008;
+      angleX = 0.4 + Math.sin(t * 0.004) * 0.15;
+
+      const cosY = Math.cos(angleY);
+      const sinY = Math.sin(angleY);
+      const cosX = Math.cos(angleX);
+      const sinX = Math.sin(angleX);
+
+      const state = catParams.catState;
+      const bpm = catParams.heartbeatFrequency;
+
+      const drawAxis = (x1: number, y1: number, z1: number, x2: number, y2: number, z2: number, color: string) => {
+        const project = (px: number, py: number, pz: number) => {
+          let rx = px * cosY - pz * sinY;
+          let rz = px * sinY + pz * cosY;
+          let ry = py * cosX - rz * sinX;
+          let rz2 = py * sinX + rz * cosX;
+          const dist = 180;
+          const scale = dist / (dist + rz2);
+          return { sx: midX + rx * scale * 1.3, sy: midY + ry * scale * 1.3 };
+        };
+        const p1 = project(x1, y1, z1);
+        const p2 = project(x2, y2, z2);
+        ctx.beginPath();
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 0.5;
+        ctx.moveTo(p1.sx, p1.sy);
+        ctx.lineTo(p2.sx, p2.sy);
+        ctx.stroke();
+      };
+
+      // Subtle axes
+      drawAxis(-50, 0, 0, 50, 0, 0, 'rgba(148, 163, 184, 0.12)');
+      drawAxis(0, -50, 0, 0, 50, 0, 'rgba(148, 163, 184, 0.12)');
+      drawAxis(0, 0, -50, 0, 0, 50, 'rgba(148, 163, 184, 0.12)');
+
+      if (state === 'superposition') {
+        // Superposition: Two beautiful intersecting wave rings (dual state spaces)
+        ctx.beginPath();
+        ctx.strokeStyle = 'rgba(168, 85, 247, 0.7)'; // purple (Alive)
+        ctx.lineWidth = 1.2;
+        for (let a = 0; a <= Math.PI * 2; a += 0.08) {
+          const r = 35 + Math.sin(a * 8 + t * 0.12) * 3;
+          const px = r * Math.cos(a);
+          const py = r * Math.sin(a);
+          const pz = Math.sin(a * 4 + t * 0.08) * 4;
+
+          let rx = px * cosY - pz * sinY;
+          let rz = px * sinY + pz * cosY;
+          let ry = py * cosX - rz * sinX;
+          let rz2 = py * sinX + rz * cosX;
+
+          const dist = 180;
+          const scale = dist / (dist + rz2);
+          const sx = midX + rx * scale * 1.3;
+          const sy = midY + ry * scale * 1.3;
+
+          if (a === 0) ctx.moveTo(sx, sy);
+          else ctx.lineTo(sx, sy);
+        }
+        ctx.closePath();
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.strokeStyle = 'rgba(56, 189, 248, 0.5)'; // sky-blue (Dead)
+        ctx.lineWidth = 1.0;
+        for (let a = 0; a <= Math.PI * 2; a += 0.08) {
+          const r = 35 + Math.cos(a * 6 - t * 0.08) * 2.5;
+          const px = Math.sin(a * 2 + t * 0.05) * 3;
+          const py = r * Math.cos(a);
+          const pz = r * Math.sin(a);
+
+          let rx = px * cosY - pz * sinY;
+          let rz = px * sinY + pz * cosY;
+          let ry = py * cosX - rz * sinX;
+          let rz2 = py * sinX + rz * cosX;
+
+          const dist = 180;
+          const scale = dist / (dist + rz2);
+          const sx = midX + rx * scale * 1.3;
+          const sy = midY + ry * scale * 1.3;
+
+          if (a === 0) ctx.moveTo(sx, sy);
+          else ctx.lineTo(sx, sy);
+        }
+        ctx.closePath();
+        ctx.stroke();
+
+        // Particles
+        particles.forEach(p => {
+          p.phase += p.speed;
+          const cosP = Math.cos(0.004);
+          const sinP = Math.sin(0.004);
+          const tx = p.x * cosP - p.z * sinP;
+          p.z = p.x * sinP + p.z * cosP;
+          p.x = tx;
+
+          const px = p.x + Math.sin(p.phase) * 1.2;
+          const py = p.y + Math.cos(p.phase * 1.1) * 1.2;
+          const pz = p.z + Math.sin(p.phase * 0.8) * 1.2;
+
+          let rx = px * cosY - pz * sinY;
+          let rz = px * sinY + pz * cosY;
+          let ry = py * cosX - rz * sinX;
+          let rz2 = py * sinX + rz * cosX;
+
+          const dist = 180;
+          const scale = dist / (dist + rz2);
+          const sx = midX + rx * scale * 1.3;
+          const sy = midY + ry * scale * 1.3;
+
+          ctx.beginPath();
+          ctx.fillStyle = p.color;
+          ctx.arc(sx, sy, p.size * scale, 0, Math.PI * 2);
+          ctx.fill();
+        });
+
+      } else if (state === 'alive') {
+        // ALIVE state: Bright green coordinate sphere pulsing in sync with heartbeat BPM
+        const pulse = 1.0 + Math.max(0, Math.sin((t * (bpm / 60) * Math.PI) / 30)) * 0.12;
+
+        ctx.beginPath();
+        ctx.strokeStyle = 'rgba(16, 185, 129, 0.75)'; // Emerald
+        ctx.lineWidth = 1.2;
+
+        for (let orbit = 0; orbit < 3; orbit++) {
+          const orbitAngle = (orbit * Math.PI) / 3;
+          ctx.beginPath();
+          for (let a = 0; a <= Math.PI * 2; a += 0.1) {
+            const r = 32 * pulse;
+            const px = r * Math.cos(a) * Math.cos(orbitAngle);
+            const py = r * Math.sin(a);
+            const pz = r * Math.cos(a) * Math.sin(orbitAngle);
+
+            let rx = px * cosY - pz * sinY;
+            let rz = px * sinY + pz * cosY;
+            let ry = py * cosX - rz * sinX;
+            let rz2 = py * sinX + rz * cosX;
+
+            const dist = 180;
+            const scale = dist / (dist + rz2);
+            const sx = midX + rx * scale * 1.3;
+            const sy = midY + ry * scale * 1.3;
+
+            if (a === 0) ctx.moveTo(sx, sy);
+            else ctx.lineTo(sx, sy);
+          }
+          ctx.closePath();
+          ctx.stroke();
+        }
+
+        // Inside glowing ball
+        const r_core = 12 * pulse;
+        const grad = ctx.createRadialGradient(midX, midY, 0, midX, midY, r_core * 1.4);
+        grad.addColorStop(0, 'rgba(52, 211, 153, 0.4)');
+        grad.addColorStop(0.7, 'rgba(16, 185, 129, 0.08)');
+        grad.addColorStop(1, 'rgba(16, 185, 129, 0)');
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(midX, midY, r_core * 1.4, 0, Math.PI * 2);
+        ctx.fill();
+
+      } else {
+        // DEAD state: Decayed flat horizontal disk (dim red)
+        ctx.beginPath();
+        ctx.strokeStyle = 'rgba(239, 68, 68, 0.6)'; // red
+        ctx.lineWidth = 0.8;
+
+        for (let ring = 1; ring <= 3; ring++) {
+          const r = ring * 12;
+          ctx.beginPath();
+          for (let a = 0; a <= Math.PI * 2; a += 0.12) {
+            const px = r * Math.cos(a);
+            const py = Math.sin(a * 6 + t * 0.15) * 0.8; // barely active flatline wave
+            const pz = r * Math.sin(a);
+
+            let rx = px * cosY - pz * sinY;
+            let rz = px * sinY + pz * cosY;
+            let ry = py * cosX - rz * sinX;
+            let rz2 = py * sinX + rz * cosX;
+
+            const dist = 180;
+            const scale = dist / (dist + rz2);
+            const sx = midX + rx * scale * 1.3;
+            const sy = midY + ry * scale * 1.3;
+
+            if (a === 0) ctx.moveTo(sx, sy);
+            else ctx.lineTo(sx, sy);
+          }
+          ctx.closePath();
+          ctx.stroke();
+        }
+
+        // Collapse downward vector pointer
+        drawAxis(0, 0, 0, 0, 28, 0, 'rgba(239, 68, 68, 0.7)');
+        drawAxis(-3, 24, 0, 0, 28, 0, 'rgba(239, 68, 68, 0.7)');
+        drawAxis(3, 24, 0, 0, 28, 0, 'rgba(239, 68, 68, 0.7)');
+      }
+
       t += 1;
       animId = requestAnimationFrame(render);
     };
@@ -378,12 +629,22 @@ export default function SchrodingerCat({
         {/* Representation Monitor Mode Selector */}
         <div className="flex justify-between items-center mb-2">
           <span className="text-[9px] text-slate-500 font-mono tracking-wider">REPRESENTATION MONITOR:</span>
-          <div className="flex bg-slate-950/80 rounded border border-slate-900/60 p-0.5 text-[8px] font-mono">
+          <div className="flex bg-slate-950/80 rounded border border-slate-900/60 p-0.5 text-[8px] font-mono gap-1">
+            <button
+              onClick={() => setDisplayMode('3d')}
+              className={`px-2 py-0.5 rounded transition-all ${
+                displayMode === '3d'
+                  ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30 font-semibold'
+                  : 'text-slate-500 hover:text-slate-300'
+              }`}
+            >
+              3D Wave-Function
+            </button>
             <button
               onClick={() => setDisplayMode('heartbeat')}
               className={`px-2 py-0.5 rounded transition-all ${
                 displayMode === 'heartbeat'
-                  ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30 font-semibold'
+                  ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-semibold'
                   : 'text-slate-500 hover:text-slate-300'
               }`}
             >
@@ -404,7 +665,18 @@ export default function SchrodingerCat({
 
         {/* Visual Box Superposition / Auditory Waveform representation */}
         <div className="relative w-full h-36 rounded-lg bg-[#010103] border border-slate-900 overflow-hidden flex flex-col items-center justify-center p-4">
-          {displayMode === 'waveform' ? (
+          {displayMode === '3d' ? (
+            <div className="w-full h-full relative">
+              <canvas ref={threeDCanvasRef} className="w-full h-full block" />
+              <div className="absolute top-1.5 left-2 bg-slate-950/90 px-1.5 py-0.5 rounded border border-slate-900/50 text-[8px] font-mono text-slate-400 flex items-center gap-1">
+                <span className={`w-1.5 h-1.5 rounded-full ${
+                  catParams.catState === 'superposition' ? 'bg-purple-500 animate-pulse' :
+                  catParams.catState === 'alive' ? 'bg-emerald-500 animate-ping' : 'bg-red-500 animate-pulse'
+                }`} />
+                3D SCHRÖDINGER COHERENCE PROPAGATOR
+              </div>
+            </div>
+          ) : displayMode === 'waveform' ? (
             <div className="w-full h-full relative">
               <canvas ref={waveformCanvasRef} className="w-full h-full block" />
               <div className="absolute top-1.5 left-2 bg-slate-950/90 px-1.5 py-0.5 rounded border border-slate-900/50 text-[8px] font-mono text-slate-400 flex items-center gap-1">
