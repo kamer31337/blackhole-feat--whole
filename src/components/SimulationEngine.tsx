@@ -172,6 +172,7 @@ export default function SimulationEngine({
   const [activeTab, setActiveTab] = useState<'blackhole' | 'wormhole'>('blackhole');
   const [shipPos, setShipPos] = useState<SixDVector>({ x: 0, y: 0, z: 220, px: 0.1, py: -0.1, pz: 0.05 });
   const [rotation, setRotation] = useState({ theta: 0.8, phi: 1.2 });
+  const [autoRotate, setAutoRotate] = useState(true);
   const [isWarping, setIsWarping] = useState(false);
 
   const [selectedTarget, setSelectedTarget] = useState<DeepSpaceTarget>(DEEP_SPACE_CATALOG[0]);
@@ -202,21 +203,225 @@ export default function SimulationEngine({
     }
   }, [blackHole.mass, blackHole.spin, triggerHapticFeedback]);
 
-  // Sync stabilizer frequency with astronomical target to lock link
+  // Sync stabilizer frequency with astronomical target to lock link and update targetFreq
   const isTargetLocked = Math.abs(wormhole.stabilizerFreq - selectedTarget.resonanceFreq) < 0.6;
   useEffect(() => {
-    if (isTargetLocked !== wormhole.isStabilized) {
-      setWormhole(prev => ({
-        ...prev,
-        isStabilized: isTargetLocked
-      }));
-      if (isTargetLocked) {
-        triggerHapticFeedback('Wormhole Harmonic Resonance Coordinate System Locked!', 0.95);
+    setWormhole(prev => {
+      const needsStabilizedUpdate = isTargetLocked !== prev.isStabilized;
+      const needsTargetFreqUpdate = selectedTarget.resonanceFreq !== prev.targetFreq;
+      if (needsStabilizedUpdate || needsTargetFreqUpdate) {
+        return {
+          ...prev,
+          isStabilized: isTargetLocked,
+          targetFreq: selectedTarget.resonanceFreq
+        };
       }
+      return prev;
+    });
+
+    if (isTargetLocked && !wormhole.isStabilized) {
+      triggerHapticFeedback('Wormhole Harmonic Resonance Coordinate System Locked!', 0.95);
     }
-  }, [isTargetLocked, wormhole.isStabilized, selectedTarget, setWormhole, triggerHapticFeedback]);
+  }, [isTargetLocked, wormhole.isStabilized, selectedTarget.resonanceFreq, setWormhole, triggerHapticFeedback]);
 
   const d3SvgRef = useRef<SVGSVGElement | null>(null);
+  const [isHudExpanded, setIsHudExpanded] = useState(false);
+  const [canvasDimensions, setCanvasDimensions] = useState({ width: 600, height: 450 });
+
+  // Multi-touch & Mouse gesture tracking refs
+  const initialTouchDistanceRef = useRef<number | null>(null);
+  const initialTouchAngleRef = useRef<number | null>(null);
+  const initialShipZRef = useRef<number | null>(null);
+  const initialThetaRef = useRef<number | null>(null);
+  const lastTouchXRef = useRef<number | null>(null);
+  const lastTouchYRef = useRef<number | null>(null);
+
+  const lastMouseXRef = useRef<number | null>(null);
+  const lastMouseYRef = useRef<number | null>(null);
+  const [isMouseDown, setIsMouseDown] = useState(false);
+
+  // Gesture HUD visual feedback state
+  const [gestureState, setGestureState] = useState<{
+    isActive: boolean;
+    type: 'none' | 'drag' | 'pinch' | 'rotate' | 'multi';
+    zoomScale: number;
+    rotationDelta: number;
+  }>({
+    isActive: false,
+    type: 'none',
+    zoomScale: 1.0,
+    rotationDelta: 0,
+  });
+
+  // Responsive Viewport Resize Observer
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const resizeObserver = new ResizeObserver((entries) => {
+      for (let entry of entries) {
+        const width = Math.floor(entry.contentRect.width);
+        const height = Math.floor(entry.contentRect.height);
+
+        const canvas = canvasRef.current;
+        if (canvas) {
+          canvas.width = width;
+          canvas.height = height;
+          setCanvasDimensions({ width, height });
+        }
+      }
+    });
+
+    resizeObserver.observe(container);
+    return () => {
+      resizeObserver.disconnect();
+    };
+  }, []);
+
+  // Multi-Touch Event Handlers
+  const handleTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
+    if (e.touches.length === 1) {
+      const touch = e.touches[0];
+      lastTouchXRef.current = touch.clientX;
+      lastTouchYRef.current = touch.clientY;
+      setGestureState({
+        isActive: true,
+        type: 'drag',
+        zoomScale: 1.0,
+        rotationDelta: 0,
+      });
+      if (autoRotate) setAutoRotate(false);
+    } else if (e.touches.length === 2) {
+      const t1 = e.touches[0];
+      const t2 = e.touches[1];
+
+      const dx = t2.clientX - t1.clientX;
+      const dy = t2.clientY - t1.clientY;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+      const angle = Math.atan2(dy, dx);
+
+      initialTouchDistanceRef.current = distance;
+      initialTouchAngleRef.current = angle;
+      initialShipZRef.current = shipPos.z;
+      initialThetaRef.current = rotation.theta;
+
+      setGestureState({
+        isActive: true,
+        type: 'multi',
+        zoomScale: 1.0,
+        rotationDelta: 0,
+      });
+      if (autoRotate) setAutoRotate(false);
+    }
+  };
+
+  const handleTouchMove = (e: React.TouchEvent<HTMLDivElement>) => {
+    if (e.touches.length === 1 && lastTouchXRef.current !== null && lastTouchYRef.current !== null) {
+      const touch = e.touches[0];
+      const dx = touch.clientX - lastTouchXRef.current;
+      const dy = touch.clientY - lastTouchYRef.current;
+
+      lastTouchXRef.current = touch.clientX;
+      lastTouchYRef.current = touch.clientY;
+
+      setRotation(prev => {
+        const newTheta = (prev.theta - dx * 0.007) % (Math.PI * 2);
+        const newPhi = Math.max(0.1, Math.min(Math.PI - 0.1, prev.phi - dy * 0.007));
+        return { theta: newTheta, phi: newPhi };
+      });
+
+      setGestureState(prev => ({ ...prev, type: 'drag' }));
+    } else if (
+      e.touches.length === 2 &&
+      initialTouchDistanceRef.current !== null &&
+      initialTouchAngleRef.current !== null &&
+      initialShipZRef.current !== null &&
+      initialThetaRef.current !== null
+    ) {
+      const t1 = e.touches[0];
+      const t2 = e.touches[1];
+
+      const dx = t2.clientX - t1.clientX;
+      const dy = t2.clientY - t1.clientY;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+      const angle = Math.atan2(dy, dx);
+
+      const distanceRatio = distance / initialTouchDistanceRef.current;
+      const targetZ = Math.max(25, Math.min(420, initialShipZRef.current / distanceRatio));
+      setShipPos(prev => ({ ...prev, z: targetZ }));
+
+      const angleDelta = angle - initialTouchAngleRef.current;
+      const targetTheta = (initialThetaRef.current + angleDelta) % (Math.PI * 2);
+      setRotation(prev => ({ ...prev, theta: targetTheta }));
+
+      setGestureState({
+        isActive: true,
+        type: 'multi',
+        zoomScale: distanceRatio,
+        rotationDelta: (angleDelta * 180) / Math.PI,
+      });
+    }
+  };
+
+  const handleTouchEnd = () => {
+    initialTouchDistanceRef.current = null;
+    initialTouchAngleRef.current = null;
+    initialShipZRef.current = null;
+    initialThetaRef.current = null;
+    lastTouchXRef.current = null;
+    lastTouchYRef.current = null;
+
+    setGestureState({
+      isActive: false,
+      type: 'none',
+      zoomScale: 1.0,
+      rotationDelta: 0,
+    });
+  };
+
+  // Mouse Orbit Event Handlers
+  const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    lastMouseXRef.current = e.clientX;
+    lastMouseYRef.current = e.clientY;
+    setIsMouseDown(true);
+    if (autoRotate) setAutoRotate(false);
+    setGestureState({
+      isActive: true,
+      type: 'drag',
+      zoomScale: 1.0,
+      rotationDelta: 0,
+    });
+  };
+
+  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!isMouseDown || lastMouseXRef.current === null || lastMouseYRef.current === null) return;
+    const dx = e.clientX - lastMouseXRef.current;
+    const dy = e.clientY - lastMouseYRef.current;
+
+    lastMouseXRef.current = e.clientX;
+    lastMouseYRef.current = e.clientY;
+
+    setRotation(prev => {
+      const newTheta = (prev.theta - dx * 0.007) % (Math.PI * 2);
+      const newPhi = Math.max(0.1, Math.min(Math.PI - 0.1, prev.phi - dy * 0.007));
+      return { theta: newTheta, phi: newPhi };
+    });
+  };
+
+  const handleMouseUpOrLeave = () => {
+    if (isMouseDown) {
+      setIsMouseDown(false);
+      lastMouseXRef.current = null;
+      lastMouseYRef.current = null;
+      setGestureState({
+        isActive: false,
+        type: 'none',
+        zoomScale: 1.0,
+        rotationDelta: 0,
+      });
+    }
+  };
 
   // Dynamic D3.js 6D Probability Density Flux Map Loop
   useEffect(() => {
@@ -358,6 +563,18 @@ export default function SimulationEngine({
   // Initialize PINN instance
   const pinnRef = useRef<PhysicsInformedNN>(new PhysicsInformedNN());
   const particlesRef = useRef<SimulationParticle[]>([]);
+  const flareParticlesRef = useRef<{
+    x: number;
+    y: number;
+    z: number;
+    vx: number;
+    vy: number;
+    vz: number;
+    life: number;
+    maxLife: number;
+    color: string;
+    size: number;
+  }[]>([]);
 
   // Monitor resize event
   useEffect(() => {
@@ -470,11 +687,20 @@ export default function SimulationEngine({
 
       const rs = metrics.schwarzschildRadius;
 
-      // Orbital parameters
-      const cosT = Math.cos(rotation.theta);
-      const sinT = Math.sin(rotation.theta);
-      const cosP = Math.cos(rotation.phi);
-      const sinP = Math.sin(rotation.phi);
+      // Orbital parameters with optional automatic 3D rotation
+      let currentTheta = rotation.theta;
+      let currentPhi = rotation.phi;
+
+      if (autoRotate && isPlaying) {
+        const elapsedSeconds = Date.now() / 1000;
+        currentTheta = (rotation.theta + elapsedSeconds * 0.15) % (Math.PI * 2);
+        currentPhi = rotation.phi + Math.sin(elapsedSeconds * 0.12) * 0.18;
+      }
+
+      const cosT = Math.cos(currentTheta);
+      const sinT = Math.sin(currentTheta);
+      const cosP = Math.cos(currentPhi);
+      const sinP = Math.sin(currentPhi);
 
       // Custom 6D projection fold
       const project6D = (vec: SixDVector) => {
@@ -506,7 +732,9 @@ export default function SimulationEngine({
         }
 
         const eyeZ = shipPos.z;
-        const scale = 380 / (z2 + eyeZ);
+        const aspect = w / h;
+        const aspectScale = aspect < 1.0 ? Math.max(0.48, aspect * 0.95) : 1.0;
+        const scale = (380 * aspectScale) / (z2 + eyeZ);
         return {
           x: cx + (x1 - shipPos.x) * scale,
           y: cy + (y1 - shipPos.y) * scale,
@@ -630,6 +858,68 @@ export default function SimulationEngine({
       // Update particle positions first
       const particles = particlesRef.current;
       if (isPlaying) {
+        // --- ADDITIVE FLARE PARTICLES DYNAMIC SPONSORING & COORDINATES MAPPING ---
+        if (activeTab === 'blackhole') {
+          const flares = flareParticlesRef.current;
+          const instability = metrics.instabilityFactor || 0;
+          
+          // Spawn rate scales dynamically in intensity based on the 'instabilityFactor' metrics
+          const spawnChance = instability / 100;
+          const numToSpawn = Math.floor(spawnChance * 8) + (Math.random() < (spawnChance * 8) % 1 ? 1 : 0);
+          
+          for (let i = 0; i < numToSpawn; i++) {
+            const angle = Math.random() * Math.PI * 2;
+            const r = rs * (1.0 + Math.random() * 0.45); // spawn near the event horizon (rs)
+            
+            // Outer explosive direction velocities
+            const theta = Math.random() * Math.PI;
+            const phi = Math.random() * Math.PI * 2;
+            const speedScale = 1.0 + (instability / 40); // faster, more energetic at high instability
+            
+            const vx = Math.sin(theta) * Math.cos(phi) * (1.2 + Math.random() * 2.8) * speedScale;
+            const vy = (Math.random() - 0.5) * 1.8 * speedScale; // slightly flat profile
+            const vz = Math.sin(theta) * Math.sin(phi) * (1.2 + Math.random() * 2.8) * speedScale;
+            
+            // Color shifts from hot orange to electric violet-magenta under critical stress
+            const hue = Math.max(0, Math.min(360, 24 - (instability * 0.6) + (Math.random() * 12)));
+            
+            flares.push({
+              x: Math.cos(angle) * r,
+              y: (Math.random() - 0.5) * 5,
+              z: Math.sin(angle) * r,
+              vx,
+              vy,
+              vz,
+              life: 0,
+              maxLife: 25 + Math.floor(Math.random() * 35),
+              color: `hsl(${hue < 0 ? hue + 360 : hue}, 100%, ${55 + Math.random() * 20}%)`,
+              size: 2.0 + Math.random() * 4.0
+            });
+          }
+          
+          // Update and age existing flares
+          flareParticlesRef.current = flares
+            .map((f) => {
+              // Gravitational pull / spin influence
+              let rx = f.x + f.vx;
+              let ry = f.y + f.vy;
+              let rz = f.z + f.vz;
+              
+              // Apply simple fluidic deceleration
+              return {
+                ...f,
+                x: rx,
+                y: ry,
+                z: rz,
+                vx: f.vx * 0.965,
+                vy: f.vy * 0.965,
+                vz: f.vz * 0.965,
+                life: f.life + 1
+              };
+            })
+            .filter((f) => f.life < f.maxLife);
+        }
+
         particles.forEach((p) => {
           if (activeTab === 'blackhole') {
             const dist = Math.sqrt(p.pos.x * p.pos.x + p.pos.y * p.pos.y + p.pos.z * p.pos.z);
@@ -731,13 +1021,13 @@ export default function SimulationEngine({
 
       // Build depth-sorted list of renderable elements
       interface RenderableItem {
-        type: 'particle' | 'singularity' | 'spin_ring' | 'throat_glow' | 'webgl_disk';
+        type: 'particle' | 'singularity' | 'spin_ring' | 'throat_glow' | 'webgl_disk' | 'flare';
         depth: number;
         data: any;
       }
 
       const drawItems: RenderableItem[] = [];
-      const hasWebGL = !!webglRendererRef.current;
+      const hasWebGL = !!webglRendererRef.current && webglRendererRef.current.isSupported();
 
       // Add particles to drawing queue
       particles.forEach((p) => {
@@ -754,6 +1044,21 @@ export default function SimulationEngine({
           });
         }
       });
+
+      // Add flare particles to drawing queue (drawn even in WebGL continuous accretion disk mode!)
+      if (activeTab === 'blackhole') {
+        const flares = flareParticlesRef.current;
+        flares.forEach((f) => {
+          const proj = project6D({ x: f.x, y: f.y, z: f.z, px: f.vx, py: f.vy, pz: f.vz });
+          if (proj.visible && proj.x > 0 && proj.x < w && proj.y > 0 && proj.y < h) {
+            drawItems.push({
+              type: 'flare',
+              depth: proj.depth,
+              data: { f, proj }
+            });
+          }
+        });
+      }
 
       // Add central structures
       if (activeTab === 'blackhole') {
@@ -900,13 +1205,40 @@ export default function SimulationEngine({
             ctx.fillStyle = photonGradiant;
             ctx.fill();
           }
+        } else if (item.type === 'flare') {
+          const { f, proj } = item.data;
+          const alpha = Math.sin((f.life / f.maxLife) * Math.PI); // Fade in/out profile
+          
+          // Use additive blending for bright energetic flare glow
+          const originalComposite = ctx.globalCompositeOperation;
+          ctx.globalCompositeOperation = 'screen';
+          
+          ctx.beginPath();
+          const flareSize = f.size * Math.max(0.12, proj.scaleFactor);
+          
+          // Setup a glowing gradient with a hot white core
+          const flareGrad = ctx.createRadialGradient(
+            proj.x, proj.y, 0,
+            proj.x, proj.y, flareSize * 1.8
+          );
+          flareGrad.addColorStop(0, 'rgba(255, 255, 255, 1)');
+          flareGrad.addColorStop(0.35, f.color);
+          flareGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+          
+          ctx.fillStyle = flareGrad;
+          ctx.globalAlpha = alpha * 0.95;
+          ctx.arc(proj.x, proj.y, flareSize * 1.8, 0, Math.PI * 2);
+          ctx.fill();
+          
+          ctx.globalAlpha = 1.0; // Reset alpha
+          ctx.globalCompositeOperation = originalComposite; // Reset composite
         } else if (item.type === 'spin_ring') {
           const { rsProj: pProj } = item.data;
           const rsScaled = rs * pProj.scaleFactor;
           ctx.beginPath();
           const width = rsScaled * (1 + blackHole.spin * 0.65);
           const height = rsScaled;
-          ctx.ellipse(pProj.x, pProj.y, width, height, rotation.theta, 0, Math.PI * 2);
+          ctx.ellipse(pProj.x, pProj.y, width, height, currentTheta, 0, Math.PI * 2);
           ctx.strokeStyle = 'rgba(239, 68, 68, 0.45)';
           ctx.lineWidth = 1.8;
           ctx.setLineDash([6, 6]);
@@ -929,7 +1261,7 @@ export default function SimulationEngine({
               instability: metrics.instabilityFactor / 100,
               rippleTrigger: rippleTriggerRef.current,
               fractalLayers: blackHole.fractalLayers,
-              rotation: rotation.theta
+              rotation: currentTheta
             });
             
             if (webglCanvas) {
@@ -1199,7 +1531,7 @@ export default function SimulationEngine({
     return () => {
       cancelAnimationFrame(animationId);
     };
-  }, [isPlaying, activeTab, shipPos, rotation, blackHole, wormhole, metrics, isNNActive, nnOptimizationStrength]);
+  }, [isPlaying, activeTab, shipPos, rotation, autoRotate, blackHole, wormhole, metrics, isNNActive, nnOptimizationStrength, canvasDimensions]);
 
   // Method to draw synaptic neural weights live overlay on canvas
   const drawLiveSynapticNet = (ctx: CanvasRenderingContext2D, w: number, h: number) => {
@@ -1374,8 +1706,30 @@ export default function SimulationEngine({
       </div>
 
       {/* Simulator canvas */}
-      <div ref={containerRef} className="flex-1 w-full bg-[#020205] rounded-lg border border-slate-900/60 relative overflow-hidden">
+      <div
+        ref={containerRef}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        onTouchCancel={handleTouchEnd}
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUpOrLeave}
+        onMouseLeave={handleMouseUpOrLeave}
+        className="flex-1 w-full bg-[#020205] rounded-lg border border-slate-900/60 relative overflow-hidden cursor-grab active:cursor-grabbing select-none"
+      >
         <canvas ref={canvasRef} className="absolute inset-0 w-full h-full block" />
+
+        {/* Gesture Visual Feedback HUD Overlay */}
+        {gestureState.isActive && (
+          <div className="absolute top-20 left-1/2 -translate-x-1/2 z-10 bg-slate-950/90 border border-sky-500/30 rounded-full px-4 py-1.5 flex items-center gap-2 text-[9px] font-mono text-sky-400 backdrop-blur-sm shadow-lg pointer-events-none select-none animate-pulse">
+            <span className="w-1.5 h-1.5 rounded-full bg-sky-500 animate-ping" />
+            <span className="font-bold uppercase tracking-wider">
+              {gestureState.type === 'drag' && '🛰️ CAMERA COCKPIT: ORBIT ROTATION ACTIVE'}
+              {gestureState.type === 'multi' && `🔍 SPYGLASS OPTICS: ZOOM ${(gestureState.zoomScale).toFixed(2)}x | ROTATION ${(gestureState.rotationDelta).toFixed(1)}°`}
+            </span>
+          </div>
+        )}
 
         {/* Floating Controls HUD overlay */}
         <div className="absolute bottom-4 left-4 z-10 flex gap-2">
@@ -1407,7 +1761,256 @@ export default function SimulationEngine({
           >
             <Activity className="w-4 h-4" />
           </button>
+          <button
+            id="btn-toggle-hud"
+            onClick={() => {
+              setIsHudExpanded(!isHudExpanded);
+              triggerHapticFeedback(`HUD Cockpit controls: ${!isHudExpanded ? 'EXPANDED' : 'COLLAPSED'}`, 0.3);
+            }}
+            className={`p-2 rounded-lg bg-slate-950/80 border text-slate-300 hover:text-white hover:bg-slate-900 transition-all flex items-center gap-1.5 ${
+              isHudExpanded ? 'border-amber-500 text-amber-400 bg-amber-950/40' : 'border-slate-800'
+            }`}
+            title="Toggle Cockpit Sliders Panel"
+          >
+            <Sliders className="w-4 h-4" />
+            <span className="text-[9px] font-mono font-bold uppercase tracking-wider hidden sm:inline">
+              COCKPIT HUD
+            </span>
+          </button>
         </div>
+
+        {/* Collapsible HUD Parameters Stack */}
+        {isHudExpanded && (
+          <div className="absolute bottom-16 left-4 right-4 sm:right-auto sm:w-[340px] bg-slate-950/95 border border-slate-800 rounded-lg p-4 z-20 overflow-y-auto max-h-[60%] sm:max-h-[75%] backdrop-blur-md flex flex-col gap-4 shadow-2xl animate-in fade-in slide-in-from-bottom-4 duration-200">
+            <div className="flex justify-between items-center border-b border-slate-900 pb-2">
+              <span className="text-[10px] font-mono font-bold text-amber-400 tracking-wider flex items-center gap-1.5">
+                <Sliders className="w-3.5 h-3.5" /> 
+                {activeTab === 'blackhole' ? 'SINGULARITY HUD METRICS' : 'ER-BRIDGE STABILIZATION HUD'}
+              </span>
+              <button 
+                onClick={() => setIsHudExpanded(false)}
+                className="text-slate-500 hover:text-slate-300 text-xs font-mono"
+              >
+                [CLOSE]
+              </button>
+            </div>
+
+            {activeTab === 'blackhole' ? (
+              <div className="flex flex-col gap-3.5 text-xs font-mono">
+                {/* Metric Selector Buttons inside HUD */}
+                <div>
+                  <span className="text-[9px] text-slate-500 block mb-1">SINGULARITY GEOMETRY METRIC:</span>
+                  <div className="grid grid-cols-3 bg-slate-900 rounded p-0.5 border border-slate-800/60">
+                    {(['Schwarzschild', 'Kerr', 'Reissner-Nordstrom'] as const).map((m) => (
+                      <button
+                        key={m}
+                        onClick={() => {
+                          setBlackHole(prev => ({ ...prev, activeSingularity: m }));
+                          triggerHapticFeedback(`Singularity metric changed: ${m}`, 0.4);
+                        }}
+                        className={`text-[8.5px] py-1 rounded text-center font-mono font-bold transition-all ${
+                          blackHole.activeSingularity === m
+                            ? 'bg-amber-500/20 text-amber-400 border border-amber-500/20'
+                            : 'text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        {m.split('-')[0]}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Mass with converted Unit directly */}
+                <div>
+                  <div className="flex justify-between text-[10px] text-slate-400 font-mono mb-1">
+                    <span>Singularity Mass ($M$):</span>
+                    <span className="text-amber-400 font-bold">{blackHole.mass.toFixed(1)} M_☉</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="5"
+                    max="50"
+                    step="0.5"
+                    value={blackHole.mass}
+                    onChange={(e) => {
+                      setBlackHole(prev => ({ ...prev, mass: parseFloat(e.target.value) }));
+                    }}
+                    className="w-full accent-amber-500 h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer"
+                  />
+                  <div className="flex justify-between text-[8px] text-slate-500 mt-1">
+                    <span>SCHWARZSCHILD RADIUS:</span>
+                    <span className="text-amber-400">{(2.953 * blackHole.mass).toFixed(2)} km</span>
+                  </div>
+                </div>
+
+                {blackHole.activeSingularity === 'Kerr' && (
+                  <div>
+                    <div className="flex justify-between text-[10px] text-slate-400 font-mono mb-1">
+                      <span>Ergosphere Spin ($a$):</span>
+                      <span className="text-sky-400 font-bold">{(blackHole.spin * 100).toFixed(0)}%</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0"
+                      max="1"
+                      step="0.05"
+                      value={blackHole.spin}
+                      onChange={(e) => {
+                        setBlackHole(prev => ({ ...prev, spin: parseFloat(e.target.value) }));
+                      }}
+                      className="w-full accent-sky-400 h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer"
+                    />
+                  </div>
+                )}
+
+                {blackHole.activeSingularity === 'Reissner-Nordstrom' && (
+                  <div>
+                    <div className="flex justify-between text-[10px] text-slate-400 font-mono mb-1">
+                      <span>Singularity Charge ($Q$):</span>
+                      <span className="text-rose-400 font-bold">{(blackHole.charge * 100).toFixed(0)}%</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0"
+                      max="1"
+                      step="0.05"
+                      value={blackHole.charge}
+                      onChange={(e) => {
+                        setBlackHole(prev => ({ ...prev, charge: parseFloat(e.target.value) }));
+                      }}
+                      className="w-full accent-rose-500 h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer"
+                    />
+                  </div>
+                )}
+
+                <div>
+                  <div className="flex justify-between text-[10px] text-slate-400 font-mono mb-1">
+                    <span>Light Lens Bending ($b_0$):</span>
+                    <span className="text-emerald-400 font-bold">{blackHole.distortionScale.toFixed(2)}x</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0.5"
+                    max="3.0"
+                    step="0.1"
+                    value={blackHole.distortionScale}
+                    onChange={(e) => {
+                      setBlackHole(prev => ({ ...prev, distortionScale: parseFloat(e.target.value) }));
+                    }}
+                    className="w-full accent-emerald-500 h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer"
+                  />
+                </div>
+
+                <div>
+                  <div className="flex justify-between text-[10px] text-slate-400 font-mono mb-1">
+                    <span>Fractal Lattice Layers:</span>
+                    <span className="text-purple-400 font-bold">{blackHole.fractalLayers}</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="1"
+                    max="10"
+                    step="1"
+                    value={blackHole.fractalLayers}
+                    onChange={(e) => {
+                      setBlackHole(prev => ({ ...prev, fractalLayers: parseInt(e.target.value) }));
+                    }}
+                    className="w-full accent-purple-500 h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer"
+                  />
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setBlackHole({
+                      mass: 14.8,
+                      spin: 0.35,
+                      charge: 0.0,
+                      diskSpeed: 1.2,
+                      distortionScale: 1.5,
+                      fractalLayers: 5,
+                      activeSingularity: 'Kerr'
+                    });
+                    triggerHapticFeedback('Singularity metrics reset', 0.5);
+                  }}
+                  className="w-full bg-slate-900 hover:bg-slate-850 text-amber-500 font-mono text-[9px] font-bold py-1.5 rounded border border-slate-800 transition-all text-center"
+                >
+                  RESET COCKPIT METRICS
+                </button>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-3.5 text-xs font-mono">
+                {/* Wormhole parameters inside HUD */}
+                <div>
+                  <div className="flex justify-between items-center mb-1">
+                    <span className="text-[10px] text-slate-400">Resonance Stabilization Frequency:</span>
+                    <span className="text-emerald-400 font-bold">{wormhole.stabilizerFreq.toFixed(1)} Hz</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="100"
+                    max="300"
+                    step="0.5"
+                    disabled={wormhole.autoStabilize}
+                    value={wormhole.stabilizerFreq}
+                    onChange={(e) => {
+                      setWormhole(prev => ({ ...prev, stabilizerFreq: parseFloat(e.target.value) }));
+                    }}
+                    className="w-full accent-emerald-500 h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer disabled:opacity-40"
+                  />
+                </div>
+
+                <div>
+                  <div className="flex justify-between items-center mb-1">
+                    <span className="text-[10px] text-slate-400">Exotic Negative Energy Density:</span>
+                    <span className="text-purple-400 font-bold">{wormhole.negativeEnergy}%</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="50"
+                    max="100"
+                    value={wormhole.negativeEnergy}
+                    onChange={(e) => {
+                      setWormhole(prev => ({ ...prev, negativeEnergy: parseInt(e.target.value) }));
+                    }}
+                    className="w-full accent-purple-500 h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer"
+                  />
+                </div>
+
+                <div className="flex justify-between items-center bg-slate-900/60 p-2 rounded border border-slate-800 text-[10px] font-mono text-slate-400">
+                  <span>Instability Index:</span>
+                  <span className={metrics.instabilityFactor > 15 ? 'text-red-400 font-bold' : 'text-emerald-400 font-bold'}>
+                    {metrics.instabilityFactor.toFixed(1)}%
+                  </span>
+                </div>
+
+                <div className="flex justify-between items-center bg-slate-900/60 p-2 rounded border border-slate-800">
+                  <span className="text-[10px] text-slate-400">Quantum Auto-Stabilizer Field:</span>
+                  <input
+                    type="checkbox"
+                    checked={wormhole.autoStabilize}
+                    onChange={(e) => {
+                      setWormhole(prev => ({ ...prev, autoStabilize: e.target.checked }));
+                      triggerHapticFeedback(`Auto stabilizer field: ${e.target.checked ? 'ENABLED' : 'DISABLED'}`, 0.4);
+                    }}
+                    className="w-4 h-4 rounded border-slate-800 text-sky-500 accent-sky-400"
+                  />
+                </div>
+
+                <button
+                  disabled={wormhole.autoStabilize}
+                  onClick={() => {
+                    setWormhole(prev => ({ ...prev, stabilizerFreq: prev.targetFreq }));
+                    triggerHapticFeedback('Auto-tuned stabilizer frequency', 0.5);
+                  }}
+                  className="w-full bg-slate-900 hover:bg-slate-850 text-slate-300 py-1.5 rounded font-mono text-[10px] font-bold border border-slate-800 disabled:opacity-40 transition-all text-center"
+                >
+                  AUTO-RESOUND COCKPIT
+                </button>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* 6D Quantum Particle Probability Density Flux Map (SVG Layer with D3.js) */}
         {showFluxMap && (
@@ -1466,8 +2069,22 @@ export default function SimulationEngine({
 
         {/* Orbit rotation controls */}
         <div className="absolute top-4 right-4 z-10 bg-slate-950/80 rounded-lg p-2 border border-slate-800 text-slate-300 flex flex-col gap-1.5">
-          <div className="text-[10px] text-slate-500 font-mono flex items-center gap-1">
-            <Orbit className="w-3.5 h-3.5 text-sky-400" /> CAMERA ANGLE
+          <div className="text-[10px] text-slate-500 font-mono flex items-center justify-between gap-3">
+            <div className="flex items-center gap-1">
+              <Orbit className="w-3.5 h-3.5 text-sky-400" /> CAMERA ANGLE
+            </div>
+            <label className="flex items-center gap-1 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={autoRotate}
+                onChange={(e) => {
+                  setAutoRotate(e.target.checked);
+                  triggerHapticFeedback(`Auto 3D rotation: ${e.target.checked ? 'ENABLED' : 'DISABLED'}`, 0.2);
+                }}
+                className="w-2.5 h-2.5 rounded border-slate-800 text-sky-500 accent-sky-400 bg-slate-950"
+              />
+              <span className="text-[7.5px] text-sky-400 font-bold tracking-wider">3D SPIN</span>
+            </label>
           </div>
           <div className="flex gap-1.5 mt-1">
             <input
@@ -1477,7 +2094,10 @@ export default function SimulationEngine({
               max="6.28"
               step="0.1"
               value={rotation.theta}
-              onChange={(e) => setRotation(prev => ({ ...prev, theta: parseFloat(e.target.value) }))}
+              onChange={(e) => {
+                setRotation(prev => ({ ...prev, theta: parseFloat(e.target.value) }));
+                if (autoRotate) setAutoRotate(false);
+              }}
               className="w-16 accent-sky-400 h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer"
               title="Theta orbit"
             />
@@ -1488,7 +2108,10 @@ export default function SimulationEngine({
               max="3.14"
               step="0.1"
               value={rotation.phi}
-              onChange={(e) => setRotation(prev => ({ ...prev, phi: parseFloat(e.target.value) }))}
+              onChange={(e) => {
+                setRotation(prev => ({ ...prev, phi: parseFloat(e.target.value) }));
+                if (autoRotate) setAutoRotate(false);
+              }}
               className="w-16 accent-sky-400 h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer"
               title="Phi elevation"
             />

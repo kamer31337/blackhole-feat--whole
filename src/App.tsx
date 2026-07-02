@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { Compass, Sparkles, Orbit, ShieldAlert, Cpu, Hammer, Zap, Radio, CheckCircle, HelpCircle, Download } from 'lucide-react';
+import { Compass, Sparkles, Orbit, ShieldAlert, Cpu, Hammer, Zap, Radio, CheckCircle, HelpCircle, Download, Lock, Unlock } from 'lucide-react';
 import { BlackHoleParams, WormholeParams, SchrodingerCatParams, TelemetryMetrics } from './types';
 import SimulationEngine from './components/SimulationEngine';
 import SchrodingerCat from './components/SchrodingerCat';
 import QuantumExplorer from './components/QuantumExplorer';
 import AnalyticsDashboard from './components/AnalyticsDashboard';
+import TimeDilationSparkline from './components/TimeDilationSparkline';
 
 export default function App() {
   // 1. Black Hole Parameters State
@@ -18,6 +19,8 @@ export default function App() {
     activeSingularity: 'Kerr'
   });
 
+  const [massUnit, setMassUnit] = useState<'solar' | 'earth'>('solar');
+
   // 2. Wormhole Parameters State
   const [wormhole, setWormhole] = useState<WormholeParams>({
     throatRadius: 45.0, // km
@@ -27,7 +30,8 @@ export default function App() {
     negativeEnergy: 85.0, // Keep-open energy
     isStabilized: true,
     traversalProgress: 0,
-    isTraversing: false
+    isTraversing: false,
+    autoStabilize: false
   });
 
   // 3. Schrödinger's Cat Parameters State
@@ -150,6 +154,19 @@ export default function App() {
     });
   };
 
+  const runHardwareDiagnostic = () => {
+    // 3-step rhythmic pattern with sequential timeouts to verify hardware integration status without affecting simulation parameters
+    triggerHapticFeedback('Diagnostic Step 1/3: Primary Curvature Probe', 0.25, 'standard');
+    
+    setTimeout(() => {
+      triggerHapticFeedback('Diagnostic Step 2/3: Harmonic Resonance Pulse', 0.55, 'standard');
+    }, 450);
+    
+    setTimeout(() => {
+      triggerHapticFeedback('Diagnostic Step 3/3: Singularity Interface Echo', 0.85, 'standard');
+    }, 900);
+  };
+
   // Recalculate physical metrics whenever params update
   useEffect(() => {
     // Schwarzschild radius rs = 2.95 * Mass (in km)
@@ -192,6 +209,16 @@ export default function App() {
     }));
   }, [blackHole.mass, blackHole.distortionScale, wormhole.stabilizerFreq, wormhole.negativeEnergy]);
 
+  // Auto-stabilize lock effect
+  useEffect(() => {
+    if (wormhole.autoStabilize && wormhole.stabilizerFreq !== wormhole.targetFreq) {
+      setWormhole(prev => ({
+        ...prev,
+        stabilizerFreq: prev.targetFreq
+      }));
+    }
+  }, [wormhole.autoStabilize, wormhole.targetFreq, wormhole.stabilizerFreq]);
+
   // Handle Singularity Metric Model switches
   const handleMetricModelChange = (model: 'Schwarzschild' | 'Kerr' | 'Reissner-Nordstrom') => {
     setBlackHole(prev => ({
@@ -206,16 +233,16 @@ export default function App() {
   return (
     <div className="min-h-screen bg-[#05060f] text-slate-100 flex flex-col font-sans selection:bg-purple-500/30 selection:text-white">
       {/* 1. Header Navigation HUD */}
-      <header className="border-b border-slate-900/80 bg-[#080916]/95 backdrop-blur-md px-6 py-4 flex items-center justify-between sticky top-0 z-50">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded bg-gradient-to-tr from-sky-500 to-purple-600 flex items-center justify-center shadow-lg shadow-sky-500/10">
+      <header className="border-b border-slate-900/80 bg-[#080916]/95 backdrop-blur-md px-4 py-3 sm:px-6 sm:py-4 flex items-center justify-between sticky top-0 z-50">
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded bg-gradient-to-tr from-sky-500 to-purple-600 hidden min-[480px]:flex items-center justify-center shadow-lg shadow-sky-500/10 shrink-0">
             <Radio className="w-4 h-4 text-white animate-pulse" />
           </div>
           <div>
-            <h1 className="text-sm font-black tracking-widest text-slate-100 font-mono">
+            <h1 className="text-[10px] min-[380px]:text-xs sm:text-sm font-black tracking-widest text-slate-100 font-mono">
               COSMOS-6D : GENERAL RELATIVITY & QUANTUM ENGINE
             </h1>
-            <p className="text-[10px] text-slate-400 font-mono">
+            <p className="text-[8px] sm:text-[10px] text-slate-400 font-mono leading-tight">
               6D Vector Space Visualizer • Autonomous Gravitational Singularity Analyzer
             </p>
           </div>
@@ -250,12 +277,11 @@ export default function App() {
       </header>
 
       {/* Main Content Workspace Layout */}
-      <div className="flex-1 max-w-7xl w-full mx-auto p-6 flex flex-col gap-6">
+      <div className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 flex flex-col gap-4 sm:gap-6">
         {/* Row 1: The Bento Configuration Column & Simulation visualizer */}
-        <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 sm:gap-6">
           {/* Column A: Metric parameters & Stabilizer controls */}
-          {/* Column A: Metric parameters & Stabilizer controls */}
-          <div className="flex flex-col gap-6 xl:col-span-1">
+          <div className="hidden xl:flex flex-col gap-4 sm:gap-6 xl:col-span-1 order-2 xl:order-1">
             {/* 1. Black Hole Parameters config */}
             <div id="blackhole-controls" className="bg-[#0b0c16] rounded-xl border border-slate-800/80 p-5 flex flex-col justify-between">
               <div className="flex justify-between items-center mb-3">
@@ -291,12 +317,54 @@ export default function App() {
                   ))}
                 </div>
 
+                {/* Mass Unit Toggle Switch */}
+                <div className="flex justify-between items-center mb-3 bg-slate-950/40 p-1.5 rounded border border-slate-900/60">
+                  <span className="text-[8px] text-slate-400 font-mono tracking-wider">MASS UNIT CONVERSION:</span>
+                  <div className="flex bg-slate-950 p-0.5 rounded border border-slate-900 text-[8px] font-mono gap-1">
+                    <button
+                      id="btn-unit-solar"
+                      type="button"
+                      onClick={() => {
+                        setMassUnit('solar');
+                        triggerHapticFeedback('Mass unit converted to Solar Masses (M_☉)', 0.2);
+                      }}
+                      className={`px-2 py-0.5 rounded transition-all ${
+                        massUnit === 'solar'
+                          ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30 font-bold'
+                          : 'text-slate-500 hover:text-slate-300'
+                      }`}
+                    >
+                      Solar (M_☉)
+                    </button>
+                    <button
+                      id="btn-unit-earth"
+                      type="button"
+                      onClick={() => {
+                        setMassUnit('earth');
+                        triggerHapticFeedback('Mass unit converted to Earth Masses (M_⊕)', 0.2);
+                      }}
+                      className={`px-2 py-0.5 rounded transition-all ${
+                        massUnit === 'earth'
+                          ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30 font-bold'
+                          : 'text-slate-500 hover:text-slate-300'
+                      }`}
+                    >
+                      Earth (M_⊕)
+                    </button>
+                  </div>
+                </div>
+
                 {/* Sliders */}
                 <div className="flex flex-col gap-3">
                   <div>
                     <div className="flex justify-between text-[10px] text-slate-400 font-mono mb-1">
                       <span>Singularity Mass ($M$):</span>
-                      <span className="text-amber-400 font-bold">{blackHole.mass.toFixed(1)} $M_\odot$</span>
+                      <span className="text-amber-400 font-bold">
+                        {massUnit === 'solar'
+                          ? `${blackHole.mass.toFixed(1)} M_☉`
+                          : `${(blackHole.mass * 332946).toLocaleString(undefined, { maximumFractionDigits: 0 })} M_⊕`
+                        }
+                      </span>
                     </div>
                     <input
                       id="slider-bh-mass"
@@ -311,6 +379,18 @@ export default function App() {
                       }}
                       className="w-full accent-amber-500 h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer"
                     />
+
+                    {/* Schwarzschild radius & Hawking Temperature directly alongside mass slider */}
+                    <div className="flex flex-col gap-1 mt-1.5 bg-slate-950/60 p-1.5 rounded border border-slate-900 text-[9px] font-mono">
+                      <div className="flex justify-between items-center text-slate-500">
+                        <span>SCHWARZSCHILD RADIUS ($r_s$):</span>
+                        <span className="text-amber-400/90 font-bold">{(2.953 * blackHole.mass).toFixed(2)} km</span>
+                      </div>
+                      <div className="flex justify-between items-center text-slate-500 pt-1 border-t border-slate-900/40">
+                        <span>HAWKING TEMPERATURE ($T_h$):</span>
+                        <span className="text-amber-400/90 font-bold">{(6.1718e-8 / blackHole.mass).toExponential(4).replace('e', ' × 10^')} K</span>
+                      </div>
+                    </div>
                   </div>
 
                   {blackHole.activeSingularity === 'Kerr' && (
@@ -398,6 +478,32 @@ export default function App() {
                   </div>
                 </div>
 
+                {/* Reset button to factory defaults */}
+                <div className="mt-4 pt-2 border-t border-slate-900/60">
+                  <button
+                    id="btn-reset-singularity"
+                    type="button"
+                    onClick={() => {
+                      setBlackHole({
+                        mass: 14.8,
+                        spin: 0.35,
+                        charge: 0.0,
+                        diskSpeed: 1.2,
+                        distortionScale: 1.5,
+                        fractalLayers: 5,
+                        activeSingularity: 'Kerr'
+                      });
+                      triggerHapticFeedback('Singularity metrics reset to default factory values.', 0.5);
+                    }}
+                    className="w-full bg-slate-950 hover:bg-amber-950/20 text-amber-500 hover:text-amber-400 font-mono text-[9px] font-bold py-1.5 px-3 rounded border border-slate-900 hover:border-amber-500/30 transition-all flex items-center justify-center gap-1.5 active:scale-[0.98]"
+                  >
+                    <Hammer className="w-3.5 h-3.5 text-amber-500" />
+                    RESET SINGULARITY PARAMETERS
+                  </button>
+                </div>
+
+                <TimeDilationSparkline timeDilation={metrics.timeDilation} />
+
               <p className="text-[9px] font-mono text-slate-500 leading-normal mt-4 border-t border-slate-900/60 pt-2">
                 *The active metric updates space-time projections automatically in real-time.
               </p>
@@ -426,6 +532,42 @@ export default function App() {
                   )}
                 </div>
 
+                {/* Auto-Stabilizer Toggle */}
+                <div className="flex items-center justify-between mb-3 bg-slate-950 p-2.5 rounded border border-slate-900">
+                  <div className="flex flex-col">
+                    <span className="text-[10px] font-mono text-slate-200 font-bold">AUTO-STABILIZE HARMONICS:</span>
+                    <span className="text-[8px] font-mono text-slate-500">Lock frequency directly to resonance</span>
+                  </div>
+                  <button
+                    id="btn-toggle-auto-stabilize"
+                    type="button"
+                    onClick={() => {
+                      setWormhole(prev => {
+                        const nextAuto = !prev.autoStabilize;
+                        const nextFreq = nextAuto ? prev.targetFreq : prev.stabilizerFreq;
+                        triggerHapticFeedback(
+                          `Auto-Stabilization system: ${nextAuto ? 'ENABLED (Locked at ' + prev.targetFreq.toFixed(1) + ' Hz)' : 'DISABLED'}`,
+                          0.5,
+                          'drift'
+                        );
+                        return {
+                          ...prev,
+                          autoStabilize: nextAuto,
+                          stabilizerFreq: nextFreq
+                        };
+                      });
+                    }}
+                    className={`px-2.5 py-1 rounded font-mono text-[9px] font-bold transition-all flex items-center gap-1 cursor-pointer select-none border ${
+                      wormhole.autoStabilize
+                        ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30 font-bold'
+                        : 'bg-slate-900 text-slate-400 border-slate-800'
+                    }`}
+                  >
+                    {wormhole.autoStabilize ? <Lock className="w-3 h-3 text-emerald-400" /> : <Unlock className="w-3 h-3 text-slate-500" />}
+                    {wormhole.autoStabilize ? 'LOCKED' : 'OFF'}
+                  </button>
+                </div>
+
                 {/* Sliders */}
                 <div className="flex flex-col gap-3">
                   <div>
@@ -440,11 +582,12 @@ export default function App() {
                       max="195"
                       step="0.1"
                       value={wormhole.stabilizerFreq}
+                      disabled={wormhole.autoStabilize}
                       onChange={(e) => {
                         setWormhole(prev => ({ ...prev, stabilizerFreq: parseFloat(e.target.value) }));
                         triggerHapticFeedback(`Tuned Er-Bridge stabilizer frequency to ${e.target.value} Hz`, 0.3);
                       }}
-                      className="w-full accent-sky-500 h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer"
+                      className="w-full accent-sky-500 h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                     />
                   </div>
 
@@ -479,11 +622,12 @@ export default function App() {
               <div className="mt-4 flex gap-2">
                 <button
                   id="btn-auto-tune-bridge"
+                  disabled={wormhole.autoStabilize}
                   onClick={() => {
                     setWormhole(prev => ({ ...prev, stabilizerFreq: prev.targetFreq }));
                     triggerHapticFeedback('Auto-tuned stabilizer frequency to match resonance harmonics (184.2 Hz)', 0.5);
                   }}
-                  className="w-full bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-slate-700 text-slate-300 hover:text-white py-1.5 rounded font-mono text-[10px] font-semibold transition-all"
+                  className="w-full bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-slate-700 text-slate-300 hover:text-white py-1.5 rounded font-mono text-[10px] font-semibold transition-all disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   AUTO-RESOUND HARMONICS
                 </button>
@@ -527,12 +671,23 @@ export default function App() {
                   ></div>
                 </div>
               </div>
+
+              <div className="mt-4 pt-3 border-t border-slate-900/60">
+                <button
+                  id="btn-diagnostic-test"
+                  onClick={runHardwareDiagnostic}
+                  className="w-full bg-slate-950 hover:bg-sky-950/20 text-sky-400 hover:text-sky-300 font-mono text-[9px] font-bold py-2 px-3 rounded border border-slate-900 hover:border-sky-500/30 transition-all flex items-center justify-center gap-1.5 shadow-lg active:scale-[0.98]"
+                >
+                  <Sparkles className="w-3 h-3 animate-pulse text-sky-400" />
+                  RUN HARDWARE INTEGRATION TEST
+                </button>
+              </div>
             </div>
 
           </div>
 
           {/* Column B: Real-time high performance 3D projection simulator */}
-          <div className="xl:col-span-2 flex flex-col h-full">
+          <div className="xl:col-span-2 flex flex-col h-full order-1 xl:order-2">
             <SimulationEngine
               blackHole={blackHole}
               setBlackHole={setBlackHole}

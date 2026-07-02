@@ -17,6 +17,7 @@ export interface WormholeParams {
   isStabilized: boolean;
   traversalProgress: number; // 0 to 100% traversal
   isTraversing: boolean;
+  autoStabilize: boolean;
 }
 
 export interface SchrodingerCatParams {

@@ -32,6 +32,14 @@ export class BlackHoleWebGLRenderer {
     this.initGL();
   }
 
+  public isSupported(): boolean {
+    return this.gl !== null;
+  }
+
+  public getGL(): WebGLRenderingContext | null {
+    return this.gl;
+  }
+
   private initGL() {
     try {
       this.gl = this.canvas.getContext('webgl', { alpha: true, premultipliedAlpha: false });
